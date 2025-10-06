@@ -1,0 +1,16 @@
+{
+  "name": "finance-tracker-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@azure/cosmos": "^4.2.0",
+    "@azure/functions": "^4.4.0"
+  },
+  "scripts": {
+    "start": "func start",
+    "build": "echo \"No build step\"",
+    "test": "echo \"(add tests)\" && exit 0"
+  }
+}

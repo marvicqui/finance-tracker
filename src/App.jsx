@@ -1,19 +1,49 @@
 import React, { useState, useMemo } from 'react';
-import { PlusCircle, Trash2, CreditCard, TrendingUp, TrendingDown, DollarSign, Calendar, Download, Upload } from 'lucide-react';
+import { PlusCircle, Trash2, CreditCard, TrendingUp, TrendingDown, DollarSign, Download, Upload } from 'lucide-react';
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { useTransactions } from './hooks/useTransactions'; // API hacia Azure Functions/Cosmos
 
 const FinanceTracker = () => {
-  const [transactions, setTransactions] = useState([
-    { id: 1, date: '2025-10-01', type: 'ingreso', category: 'Salario', amount: 50000, description: 'Pago quincenal' },
-    { id: 2, date: '2025-10-02', type: 'egreso', category: 'Alimentación', amount: 1500, description: 'Supermercado' },
-    { id: 3, date: '2025-10-03', type: 'egreso', category: 'Transporte', amount: 500, description: 'Gasolina' }
-  ]);
+  // === Filtro: por mes o histórico ===
+  const [rangeMode, setRangeMode] = useState('month');                 // 'month' | 'all'
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM (default: mes actual)
 
+  // Para pedir datos: si histórico => pasamos "" como month para traer todo
+  const queryMonth = rangeMode === 'all' ? '' : month;
+
+  // === Datos desde Cosmos vía hook ===
+  const userId = 'mario'; // luego tomar de Auth
+  const { items, loading, error, create, remove } = useTransactions(userId, queryMonth);
+
+  // Helpers para navegar meses
+  function fmt(ymDate) { return ymDate.toISOString().slice(0, 7); }
+  function addMonths(ym, delta) {
+    const [y, m] = ym.split('-').map(Number);
+    const d = new Date(y, (m - 1) + delta, 1);
+    return fmt(d);
+  }
+  const gotoPrev = () => setMonth(addMonths(month, -1));
+  const gotoNext = () => setMonth(addMonths(month, 1));
+
+  // Adaptar items → shape de UI
+  const transactions = useMemo(() => {
+    return (items || []).map(t => ({
+      id: t.id,
+      date: t.date,
+      type: t.amount < 0 ? 'egreso' : 'ingreso',
+      category: t.category,
+      amount: Math.abs(t.amount),
+      description: t.note ?? ''
+    }));
+  }, [items]);
+
+  // Estado local de tarjetas (UI)
   const [creditCards, setCreditCards] = useState([
     { id: 1, name: 'Visa Oro', limit: 30000, balance: 15000, cutoffDay: 15, paymentDay: 25 },
     { id: 2, name: 'Mastercard', limit: 20000, balance: 5000, cutoffDay: 10, paymentDay: 20 }
   ]);
 
+  // Form transacción
   const [newTransaction, setNewTransaction] = useState({
     date: new Date().toISOString().split('T')[0],
     type: 'egreso',
@@ -22,6 +52,7 @@ const FinanceTracker = () => {
     description: ''
   });
 
+  // Form tarjeta
   const [newCard, setNewCard] = useState({
     name: '',
     limit: '',
@@ -39,51 +70,30 @@ const FinanceTracker = () => {
 
   const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
-  const addTransaction = () => {
-    if (newTransaction.category && newTransaction.amount) {
-      setTransactions([...transactions, {
-        id: Date.now(),
-        ...newTransaction,
-        amount: parseFloat(newTransaction.amount)
-      }]);
-      setNewTransaction({
-        date: new Date().toISOString().split('T')[0],
-        type: 'egreso',
-        category: '',
-        amount: '',
-        description: ''
-      });
-    }
+  // Crear en Cosmos
+  const addTransaction = async () => {
+    const { category, amount, description, date, type } = newTransaction;
+    const n = Number(amount);
+    if (!category || Number.isNaN(n)) return;
+
+    const signed = type === 'egreso' ? -Math.abs(n) : Math.abs(n);
+    await create({ date, amount: signed, category, note: description, account: 'Other' });
+
+    setNewTransaction({
+      date: new Date().toISOString().split('T')[0],
+      type: 'egreso',
+      category: '',
+      amount: '',
+      description: ''
+    });
   };
 
-  const deleteTransaction = (id) => {
-    setTransactions(transactions.filter(t => t.id !== id));
-  };
+  // Borrar en Cosmos
+  const deleteTransaction = async (id) => { await remove(id); };
 
-  const addCard = () => {
-    if (newCard.name && newCard.limit) {
-      setCreditCards([...creditCards, {
-        id: Date.now(),
-        ...newCard,
-        limit: parseFloat(newCard.limit),
-        balance: parseFloat(newCard.balance) || 0,
-        cutoffDay: parseInt(newCard.cutoffDay),
-        paymentDay: parseInt(newCard.paymentDay)
-      }]);
-      setNewCard({ name: '', limit: '', balance: '', cutoffDay: '', paymentDay: '' });
-    }
-  };
-
-  const deleteCard = (id) => {
-    setCreditCards(creditCards.filter(c => c.id !== id));
-  };
-
+  // Export/Import local (import crea transacciones en Cosmos)
   const exportData = () => {
-    const data = {
-      transactions,
-      creditCards,
-      exportDate: new Date().toISOString()
-    };
+    const data = { transactions, creditCards, exportDate: new Date().toISOString() };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -95,65 +105,65 @@ const FinanceTracker = () => {
 
   const importData = (event) => {
     const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const data = JSON.parse(e.target.result);
-          if (data.transactions) setTransactions(data.transactions);
-          if (data.creditCards) setCreditCards(data.creditCards);
-          alert('Datos importados correctamente');
-        } catch (error) {
-          alert('Error al importar datos');
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        let ok = 0, fail = 0, errors = [];
+
+        if (Array.isArray(data.transactions)) {
+          const chunks = (arr, size) => arr.reduce((a,_,i)=> (i%size? a[a.length-1].push(arr[i]) : a.push([arr[i]]), a), []);
+          for (const batch of chunks(data.transactions, 5)) {
+            const results = await Promise.allSettled(batch.map(tx => {
+              const signed = tx.type === 'egreso' ? -Math.abs(Number(tx.amount)) : Math.abs(Number(tx.amount));
+              return create({
+                date: tx.date,
+                amount: signed,
+                category: tx.category,
+                note: tx.description ?? '',
+                account: 'Other'
+              });
+            }));
+            results.forEach(r => r.status === 'fulfilled' ? ok++ : (fail++, errors.push(String(r.reason))));
+          }
         }
-      };
-      reader.readAsText(file);
-    }
+        if (Array.isArray(data.creditCards)) setCreditCards(data.creditCards);
+
+        alert(`Importación completada. Éxitos: ${ok}, Fallos: ${fail}`);
+      } catch (err) {
+        console.error(err);
+        alert('Error al importar datos: ' + String(err));
+      }
+    };
+    reader.readAsText(file);
   };
 
+  // Estadísticas (sobre el rango actualmente cargado)
   const statistics = useMemo(() => {
     const totalIngresos = transactions.filter(t => t.type === 'ingreso').reduce((sum, t) => sum + t.amount, 0);
     const totalEgresos = transactions.filter(t => t.type === 'egreso').reduce((sum, t) => sum + t.amount, 0);
     const balance = totalIngresos - totalEgresos;
-    
+
     const egresosPorCategoria = transactions
       .filter(t => t.type === 'egreso')
-      .reduce((acc, t) => {
-        acc[t.category] = (acc[t.category] || 0) + t.amount;
-        return acc;
-      }, {});
-
+      .reduce((acc, t) => { acc[t.category] = (acc[t.category] || 0) + t.amount; return acc; }, {});
     const pieData = Object.entries(egresosPorCategoria).map(([name, value]) => ({ name, value }));
 
     const transactionsByMonth = transactions.reduce((acc, t) => {
-      const month = t.date.substring(0, 7);
-      if (!acc[month]) {
-        acc[month] = { month, ingresos: 0, egresos: 0 };
-      }
-      if (t.type === 'ingreso') {
-        acc[month].ingresos += t.amount;
-      } else {
-        acc[month].egresos += t.amount;
-      }
+      const m = t.date.substring(0, 7);
+      if (!acc[m]) acc[m] = { month: m, ingresos: 0, egresos: 0 };
+      if (t.type === 'ingreso') acc[m].ingresos += t.amount;
+      else acc[m].egresos += t.amount;
       return acc;
     }, {});
-
     const lineData = Object.values(transactionsByMonth).sort((a, b) => a.month.localeCompare(b.month));
 
     const totalCreditLimit = creditCards.reduce((sum, c) => sum + c.limit, 0);
     const totalCreditUsed = creditCards.reduce((sum, c) => sum + c.balance, 0);
     const creditAvailable = totalCreditLimit - totalCreditUsed;
 
-    return {
-      totalIngresos,
-      totalEgresos,
-      balance,
-      pieData,
-      lineData,
-      totalCreditLimit,
-      totalCreditUsed,
-      creditAvailable
-    };
+    return { totalIngresos, totalEgresos, balance, pieData, lineData, totalCreditLimit, totalCreditUsed, creditAvailable };
   }, [transactions, creditCards]);
 
   return (
@@ -165,10 +175,7 @@ const FinanceTracker = () => {
             Control de Finanzas Personales
           </h1>
           <div className="flex gap-2">
-            <button
-              onClick={exportData}
-              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
-            >
+            <button onClick={exportData} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
               <Download size={20} />
               Exportar
             </button>
@@ -180,21 +187,56 @@ const FinanceTracker = () => {
           </div>
         </div>
 
-        <div className="flex gap-2 mb-6 border-b border-slate-300">
+        {/* Tabs */}
+        <div className="flex gap-2 mb-4 border-b border-slate-300">
           {['dashboard', 'transacciones', 'tarjetas'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
               className={`px-6 py-3 font-semibold transition-all ${
-                activeTab === tab
-                  ? 'text-blue-600 border-b-2 border-blue-600'
-                  : 'text-slate-600 hover:text-slate-800'
+                activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-600 hover:text-slate-800'
               }`}
             >
               {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
         </div>
+
+        {/* Selector de rango (Mes / Histórico) */}
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <select
+            value={rangeMode}
+            onChange={(e)=>setRangeMode(e.target.value)}
+            className="border rounded px-2 py-1"
+          >
+            <option value="month">Por mes</option>
+            <option value="all">Histórico total</option>
+          </select>
+
+          {rangeMode === 'month' ? (
+            <>
+              <button onClick={gotoPrev} className="border px-3 py-1 rounded hover:bg-slate-50">&lt;</button>
+              <input
+                type="month"
+                value={month}
+                onChange={(e)=>setMonth(e.target.value)}
+                className="border rounded px-2 py-1"
+              />
+              <button onClick={gotoNext} className="border px-3 py-1 rounded hover:bg-slate-50">&gt;</button>
+              <span className="text-sm text-slate-500">Mostrando: {month}</span>
+            </>
+          ) : (
+            <span className="text-sm text-slate-500">Mostrando: histórico completo</span>
+          )}
+        </div>
+
+        {/* Estados de carga/errores (para dashboard/transacciones) */}
+        {(activeTab !== 'tarjetas') && (
+          <>
+            {loading && <p className="text-slate-600 mb-4">Cargando transacciones…</p>}
+            {error && <p className="text-red-600 mb-4">Error: {String(error)}</p>}
+          </>
+        )}
 
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
@@ -253,7 +295,7 @@ const FinanceTracker = () => {
                         cx="50%"
                         cy="50%"
                         labelLine={false}
-                        label={({name, percent}) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
                         outerRadius={80}
                         fill="#8884d8"
                         dataKey="value"
@@ -336,12 +378,12 @@ const FinanceTracker = () => {
                 <input
                   type="date"
                   value={newTransaction.date}
-                  onChange={(e) => setNewTransaction({...newTransaction, date: e.target.value})}
+                  onChange={(e) => setNewTransaction({ ...newTransaction, date: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 />
                 <select
                   value={newTransaction.type}
-                  onChange={(e) => setNewTransaction({...newTransaction, type: e.target.value, category: ''})}
+                  onChange={(e) => setNewTransaction({ ...newTransaction, type: e.target.value, category: '' })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 >
                   <option value="egreso">Egreso</option>
@@ -349,7 +391,7 @@ const FinanceTracker = () => {
                 </select>
                 <select
                   value={newTransaction.category}
-                  onChange={(e) => setNewTransaction({...newTransaction, category: e.target.value})}
+                  onChange={(e) => setNewTransaction({ ...newTransaction, category: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 >
                   <option value="">Categoría</option>
@@ -361,14 +403,14 @@ const FinanceTracker = () => {
                   type="number"
                   placeholder="Monto"
                   value={newTransaction.amount}
-                  onChange={(e) => setNewTransaction({...newTransaction, amount: e.target.value})}
+                  onChange={(e) => setNewTransaction({ ...newTransaction, amount: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 />
                 <input
                   type="text"
                   placeholder="Descripción"
                   value={newTransaction.description}
-                  onChange={(e) => setNewTransaction({...newTransaction, description: e.target.value})}
+                  onChange={(e) => setNewTransaction({ ...newTransaction, description: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 />
                 <button
@@ -396,31 +438,31 @@ const FinanceTracker = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {transactions.sort((a, b) => new Date(b.date) - new Date(a.date)).map(t => (
-                      <tr key={t.id} className="border-b border-slate-200 hover:bg-slate-50">
-                        <td className="px-4 py-3">{t.date}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                            t.type === 'ingreso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                          }`}>
-                            {t.type}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">{t.category}</td>
-                        <td className={`px-4 py-3 font-semibold ${t.type === 'ingreso' ? 'text-green-600' : 'text-red-600'}`}>
-                          ${t.amount.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">{t.description}</td>
-                        <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => deleteTransaction(t.id)}
-                            className="text-red-600 hover:text-red-800"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {transactions
+                      .slice()
+                      .sort((a, b) => new Date(b.date) - new Date(a.date))
+                      .map(t => (
+                        <tr key={t.id} className="border-b border-slate-200 hover:bg-slate-50">
+                          <td className="px-4 py-3">{t.date}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                              t.type === 'ingreso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                            }`}>
+                              {t.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">{t.category}</td>
+                          <td className={`px-4 py-3 font-semibold ${t.type === 'ingreso' ? 'text-green-600' : 'text-red-600'}`}>
+                            ${t.amount.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">{t.description}</td>
+                          <td className="px-4 py-3 text-center">
+                            <button onClick={() => deleteTransaction(t.id)} className="text-red-600 hover:text-red-800">
+                              <Trash2 size={18} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
@@ -437,21 +479,21 @@ const FinanceTracker = () => {
                   type="text"
                   placeholder="Nombre"
                   value={newCard.name}
-                  onChange={(e) => setNewCard({...newCard, name: e.target.value})}
+                  onChange={(e) => setNewCard({ ...newCard, name: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 />
                 <input
                   type="number"
                   placeholder="Límite"
                   value={newCard.limit}
-                  onChange={(e) => setNewCard({...newCard, limit: e.target.value})}
+                  onChange={(e) => setNewCard({ ...newCard, limit: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 />
                 <input
                   type="number"
                   placeholder="Saldo usado"
                   value={newCard.balance}
-                  onChange={(e) => setNewCard({...newCard, balance: e.target.value})}
+                  onChange={(e) => setNewCard({ ...newCard, balance: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 />
                 <input
@@ -460,7 +502,7 @@ const FinanceTracker = () => {
                   min="1"
                   max="31"
                   value={newCard.cutoffDay}
-                  onChange={(e) => setNewCard({...newCard, cutoffDay: e.target.value})}
+                  onChange={(e) => setNewCard({ ...newCard, cutoffDay: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 />
                 <input
@@ -469,11 +511,26 @@ const FinanceTracker = () => {
                   min="1"
                   max="31"
                   value={newCard.paymentDay}
-                  onChange={(e) => setNewCard({...newCard, paymentDay: e.target.value})}
+                  onChange={(e) => setNewCard({ ...newCard, paymentDay: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 />
                 <button
-                  onClick={addCard}
+                  onClick={() => {
+                    if (newCard.name && newCard.limit) {
+                      setCreditCards(prev => ([
+                        ...prev,
+                        {
+                          id: Date.now(),
+                          name: newCard.name,
+                          limit: parseFloat(newCard.limit),
+                          balance: parseFloat(newCard.balance) || 0,
+                          cutoffDay: parseInt(newCard.cutoffDay),
+                          paymentDay: parseInt(newCard.paymentDay)
+                        }
+                      ]));
+                      setNewCard({ name: '', limit: '', balance: '', cutoffDay: '', paymentDay: '' });
+                    }
+                  }}
                   className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 flex items-center justify-center gap-2"
                 >
                   <PlusCircle size={20} />
@@ -490,10 +547,8 @@ const FinanceTracker = () => {
                   const available = card.limit - card.balance;
                   return (
                     <div key={card.id} className="border-2 border-slate-200 rounded-xl p-6 bg-gradient-to-br from-slate-700 to-slate-900 text-white relative">
-                      <button
-                        onClick={() => deleteCard(card.id)}
-                        className="absolute top-2 right-2 text-red-400 hover:text-red-300"
-                      >
+                      <button onClick={() => setCreditCards(prev => prev.filter(c => c.id !== card.id))}
+                              className="absolute top-2 right-2 text-red-400 hover:text-red-300">
                         <Trash2 size={18} />
                       </button>
                       <div className="mb-4">

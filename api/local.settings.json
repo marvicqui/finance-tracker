@@ -1,0 +1,11 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "COSMOS_ENDPOINT": "https://cosmos-finance-tracker.documents.azure.com:443/",
+    "COSMOS_KEY": "E14WxKUigXeq6i1tSRjbkS7kJ3TpWz6gKHmpr101kXjynCesdf26JnWACobf59at3QvPLFxzUr1oACDbuNBGog==",
+    "COSMOS_DB": "finance",
+    "COSMOS_CONTAINER": "transactions"
+  }
+}
