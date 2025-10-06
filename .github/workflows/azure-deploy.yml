@@ -1,1 +1,55 @@
-<publishData><publishProfile profileName="finance-tracker-mvq - Web Deploy" publishMethod="MSDeploy" publishUrl="finance-tracker-mvq.scm.azurewebsites.net:443" msdeploySite="finance-tracker-mvq" userName="$finance-tracker-mvq" userPWD="FQvs2CNm4nA2vsFC8ZxY9j7gHJhgyEyWfGbLqR8WQZ0bLwqXsFt8ktQmK6Ge" destinationAppUrl="http://finance-tracker-mvq.azurewebsites.net" SQLServerDBConnectionString="" mySQLDBConnectionString="" hostingProviderForumLink="" controlPanelLink="https://portal.azure.com" webSystem="WebSites"><databases /></publishProfile><publishProfile profileName="finance-tracker-mvq - FTP" publishMethod="FTP" publishUrl="ftps://waws-prod-mxc-009.ftp.azurewebsites.windows.net/site/wwwroot" ftpPassiveMode="True" userName="REDACTED" userPWD="REDACTED" destinationAppUrl="http://finance-tracker-mvq.azurewebsites.net" SQLServerDBConnectionString="REDACTED" mySQLDBConnectionString="" hostingProviderForumLink="" controlPanelLink="https://portal.azure.com" webSystem="WebSites"><databases /></publishProfile><publishProfile profileName="finance-tracker-mvq - Zip Deploy" publishMethod="ZipDeploy" publishUrl="finance-tracker-mvq.scm.azurewebsites.net:443" userName="$finance-tracker-mvq" userPWD="FQvs2CNm4nA2vsFC8ZxY9j7gHJhgyEyWfGbLqR8WQZ0bLwqXsFt8ktQmK6Ge" destinationAppUrl="http://finance-tracker-mvq.azurewebsites.net" SQLServerDBConnectionString="" mySQLDBConnectionString="" hostingProviderForumLink="" controlPanelLink="https://portal.azure.com" webSystem="WebSites"><databases /></publishProfile></publishData>
+name: Deploy to Azure Web App
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: finance-tracker-mvq    # Cambia esto por el nombre de tu Web App
+  NODE_VERSION: '20.x'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+
+    - name: 🟢 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: 📦 Install dependencies
+      run: npm ci
+
+    - name: 🔨 Build application
+      run: npm run build
+
+    - name: 📋 Copy web.config to dist
+      run: |
+        if [ -f web.config ]; then
+          cp web.config dist/
+        fi
+
+    - name: 📦 Create deployment package
+      run: |
+        cd dist
+        zip -r ../deployment.zip .
+        cd ..
+
+    - name: 🚀 Deploy to Azure Web App
+      uses: azure/webapps-deploy@v3
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        package: deployment.zip
+
+    - name: ✅ Deployment complete
+      run: |
+        echo "🎉 Deployment successful!"
+        echo "🌐 Your app is available at: https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
