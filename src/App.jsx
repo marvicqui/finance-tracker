@@ -15,15 +15,28 @@ const FinanceTracker = () => {
   // --- Sesión Entra ID (SWA) ---
   const [user, setUser] = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
+
   useEffect(() => {
-  (async () => {
-    try { setUser(await getUser()); }
-    finally { setLoadingUser(false); }
-  })();
+    let mounted = true;
+    (async () => {
+      try {
+        const u = await getUser();
+        if (mounted) setUser(u);
+      } finally {
+        if (mounted) setLoadingUser(false);
+      }
+    })();
+    return () => { mounted = false; };
   }, []);
 
   if (loadingUser) {
-  return <div className="p-6">Cargando sesión…</div>;
+    return <div className="p-6">Cargando sesión…</div>;
+  }
+
+  if (!user) {
+    // Con el config ya te redirige a /login en 401, pero este fallback ayuda
+    window.location.href = '/login';
+    return null;
   }
 
   // Si no hay usuario aún, puedes mostrar un loader o un botón de login.
