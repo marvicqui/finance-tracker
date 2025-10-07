@@ -1,43 +1,54 @@
 import { CosmosClient } from "@azure/cosmos";
 import { randomUUID } from "crypto";
-const { COSMOS_ENDPOINT, COSMOS_KEY, COSMOS_DB = "finance", COSMOS_CONTAINER = "transactions" } = process.env;
+
+function getClientPrincipal(req) {
+  const v = req.headers["x-ms-client-principal"];
+  if (!v) return null;
+  return JSON.parse(Buffer.from(v, "base64").toString("utf8"));
+}
+
+const endpoint = process.env.COSMOS_ENDPOINT;
+const key = process.env.COSMOS_KEY;
+const databaseId = process.env.COSMOS_DB || "finance";
+const containerId = process.env.COSMOS_CONTAINER || "transactions";
 
 export default async function (context, req) {
   try {
-    // Asegura que obtengamos el body en Node v4:
-    let b = req.body;
-    if (!b) {
-      try { b = await req.json(); } catch { b = null; }
+    const principal = getClientPrincipal(req);
+    if (!principal) {
+      context.res = { status: 401, jsonBody: { error: "Unauthorized" } };
+      return;
+    }
+    const userId = principal.userId;
+
+    const body = req.body || {};
+    // ignoramos body.userId si llegara; usamos el del token
+    const { date, amount, category, note = "", account = "Other", tags = [] } = body;
+
+    if (!date || typeof amount !== "number" || !category) {
+      context.res = { status: 400, jsonBody: { error: "date, amount (number) y category son requeridos" } };
+      return;
     }
 
-    const errs = [];
-    if (!b) errs.push("body required");
-    if (!b?.userId) errs.push("userId required");
-    if (!b?.date) errs.push("date (YYYY-MM-DD) required");
-    if (typeof b?.amount !== "number") errs.push("amount must be number");
-    if (!b?.category) errs.push("category required");
-    if (errs.length) return (context.res = { status: 400, jsonBody: { errors: errs } });
-
-    const now = new Date().toISOString();
     const item = {
-      id: randomUUID(),
-      userId: b.userId,
-      date: b.date,
-      amount: b.amount,
-      category: b.category,
-      note: b.note ?? "",
-      account: b.account ?? "Other",
-      tags: Array.isArray(b.tags) ? b.tags : [],
-      createdAt: now,
-      updatedAt: now
+      id: body.id || randomUUID(),
+      userId,            // <- partición
+      date,              // YYYY-MM-DD
+      amount,            // negativo egreso / positivo ingreso
+      category,
+      note,
+      account,
+      tags,
+      createdAt: new Date().toISOString(),
     };
 
-    const client = new CosmosClient({ endpoint: COSMOS_ENDPOINT, key: COSMOS_KEY });
-    const container = client.database(COSMOS_DB).container(COSMOS_CONTAINER);
-    const { resource } = await container.items.create(item);
+    const client = new CosmosClient({ endpoint, key });
+    const container = client.database(databaseId).container(containerId);
+    const { resource } = await container.items.create(item, { disableAutomaticIdGeneration: true });
+
     context.res = { status: 201, jsonBody: resource };
   } catch (e) {
     context.log.error(e);
-    context.res = { status: 500, jsonBody: { error: e.message } };
+    context.res = { status: 500, jsonBody: { error: String(e.message || e) } };
   }
 }

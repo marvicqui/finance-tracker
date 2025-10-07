@@ -1,5 +1,11 @@
 import { CosmosClient } from "@azure/cosmos";
 
+function getClientPrincipal(req) {
+  const v = req.headers["x-ms-client-principal"];
+  if (!v) return null;
+  return JSON.parse(Buffer.from(v, "base64").toString("utf8"));
+}
+
 const endpoint = process.env.COSMOS_ENDPOINT;
 const key = process.env.COSMOS_KEY;
 const databaseId = process.env.COSMOS_DB || "finance";
@@ -7,34 +13,35 @@ const containerId = process.env.COSMOS_CONTAINER || "transactions";
 
 export default async function (context, req) {
   try {
-    const userId = req.query.userId;   // opcional
-    const month  = req.query.month;    // opcional: "YYYY-MM"
+    const principal = getClientPrincipal(req);
+    if (!principal) {
+      context.res = { status: 401, jsonBody: { error: "Unauthorized" } };
+      return;
+    }
+    const userId = principal.userId;      // <- el dueño de la partición
 
+    const month = req.query?.month || ""; // "YYYY-MM" u "" para histórico
     const client = new CosmosClient({ endpoint, key });
     const container = client.database(databaseId).container(containerId);
 
-    const where = [];
-    const params = [];
-    if (userId) { where.push("c.userId = @userId"); params.push({ name: "@userId", value: userId }); }
-    if (month)  { where.push("STARTSWITH(c.date, @month)"); params.push({ name: "@month", value: month }); }
+    const where = ["c.userId = @userId"];
+    const params = [{ name: "@userId", value: userId }];
 
-    const query = `SELECT * FROM c ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY c.date DESC`;
-    context.log(`Query: ${query} | Params: ${JSON.stringify(params)}`);
+    if (month) {
+      where.push("STARTSWITH(c.date, @month)");
+      params.push({ name: "@month", value: month });
+    }
 
+    const query = `SELECT * FROM c WHERE ${where.join(" AND ")} ORDER BY c.date DESC`;
     const { resources } = await container.items.query({ query, parameters: params }).fetchAll();
 
-    // >>> Fuerza JSON siempre <<<
     context.res = {
       status: 200,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(resources ?? [])
+      body: JSON.stringify(resources ?? []),
     };
   } catch (e) {
     context.log.error(e);
-    context.res = {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: String(e?.message || e) })
-    };
+    context.res = { status: 500, jsonBody: { error: String(e.message || e) } };
   }
 }
