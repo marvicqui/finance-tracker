@@ -1,0 +1,14 @@
+{
+  "navigationFallback": { "rewrite": "/index.html", "exclude": ["/assets/*", "/api/*"] },
+  "routes": [
+    { "route": "/login",  "redirect": "/.auth/login/aad?post_login_redirect_uri=/", "statusCode": 302 },
+    { "route": "/logout", "redirect": "/.auth/logout?post_logout_redirect_uri=/",   "statusCode": 302 },
+
+    // protege API y frontend
+    { "route": "/api/*", "allowedRoles": ["authenticated"] },
+    { "route": "/*",     "allowedRoles": ["authenticated"] }
+  ],
+  "responseOverrides": {
+    "401": { "redirect": "/login", "statusCode": 302 }   // <- si no estás logueado, redirige al login
+  }
+}
