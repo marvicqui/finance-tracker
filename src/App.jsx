@@ -14,7 +14,17 @@ const FinanceTracker = () => {
 
   // --- Sesión Entra ID (SWA) ---
   const [user, setUser] = useState(null);
-  useEffect(() => { getUser().then(setUser); }, []);
+  const [loadingUser, setLoadingUser] = useState(true);
+  useEffect(() => {
+  (async () => {
+    try { setUser(await getUser()); }
+    finally { setLoadingUser(false); }
+  })();
+  }, []);
+
+  if (loadingUser) {
+  return <div className="p-6">Cargando sesión…</div>;
+  }
 
   // Si no hay usuario aún, puedes mostrar un loader o un botón de login.
   // Con tu staticwebapp.config.json ya configurado, SWA redirige 401→/login,
