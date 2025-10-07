@@ -1,3 +1,4 @@
+// api/cards-post/index.js
 const { CosmosClient } = require("@azure/cosmos");
 const { randomUUID } = require("crypto");
 
@@ -14,27 +15,53 @@ const databaseId = process.env.COSMOS_DB || "finance";
 const containerId = process.env.COSMOS_CARDS_CONTAINER || "cards";
 
 module.exports = async function (context, req) {
+  const where = (step, extra) => context.log(`[cards-post] ${step}`, extra || "");
   try {
+    where("start");
+
     const principal = getClientPrincipal(req);
-    if (!principal) return (context.res = { status: 401, body: { error: "Unauthorized" } });
+    if (!principal) {
+      where("no principal");
+      context.res = { status: 401, body: { error: "Unauthorized" } };
+      return;
+    }
 
     const userId = principal.userId;
     const body = req.body || {};
-    const name = (body.name || '').trim();
+    // Normaliza/valida
+    const name = (body.name || "").toString().trim();
     const limit = Number(body.limit);
     const balance = Number(body.balance || 0);
     const cutoffDay = Number(body.cutoffDay || 1);
     const paymentDay = Number(body.paymentDay || 10);
 
-    if (!name || Number.isNaN(limit)) {
-      context.res = { status: 400, body: { error: "name y limit (number) son requeridos" } };
+    if (!name) {
+      context.res = { status: 400, body: { error: "El nombre es requerido" } };
+      return;
+    }
+    if (!Number.isFinite(limit) || limit <= 0) {
+      context.res = { status: 400, body: { error: "El límite debe ser un número > 0" } };
+      return;
+    }
+    if (!Number.isFinite(balance) || balance < 0) {
+      context.res = { status: 400, body: { error: "El saldo debe ser un número >= 0" } };
+      return;
+    }
+    if (!Number.isInteger(cutoffDay) || cutoffDay < 1 || cutoffDay > 31) {
+      context.res = { status: 400, body: { error: "El día de corte debe estar entre 1 y 31" } };
+      return;
+    }
+    if (!Number.isInteger(paymentDay) || paymentDay < 1 || paymentDay > 31) {
+      context.res = { status: 400, body: { error: "El día de pago debe estar entre 1 y 31" } };
       return;
     }
 
+    where("cosmos init");
     const client = new CosmosClient({ endpoint, key });
     const container = client.database(databaseId).container(containerId);
 
-    // Duplicado por nombre (case-insensitive) para el mismo usuario
+    // Dup por nombre (case-insensitive) + userId
+    where("dup-check", { name, userId });
     const { resources: dup } = await container.items.query({
       query: "SELECT TOP 1 c.id FROM c WHERE c.userId = @user AND LOWER(c.name) = LOWER(@name)",
       parameters: [
@@ -44,7 +71,8 @@ module.exports = async function (context, req) {
     }).fetchAll();
 
     if (dup && dup.length) {
-      context.res = { status: 409, body: { error: "DUPLICATE" } };
+      where("dup-found", dup[0]);
+      context.res = { status: 409, body: { error: "Ya existe una tarjeta con ese nombre." } };
       return;
     }
 
@@ -60,10 +88,22 @@ module.exports = async function (context, req) {
       createdAt: new Date().toISOString()
     };
 
+    where("create", item);
     const { resource } = await container.items.create(item, { disableAutomaticIdGeneration: true });
+
+    where("success", resource?.id);
     context.res = { status: 201, body: resource };
   } catch (e) {
-    context.log.error(e);
-    context.res = { status: 500, body: { error: String(e.message || e) } };
+    // Devuelve error detallado para verlo en el cliente
+    where("error", { message: e?.message, code: e?.code, body: e?.body });
+    let msg = e?.message || "Error al crear tarjeta";
+    // Si es error de Cosmos, intenta extraer más detalle
+    if (e?.body && typeof e.body === "string") {
+      try {
+        const jb = JSON.parse(e.body);
+        if (jb?.message) msg = jb.message;
+      } catch {}
+    }
+    context.res = { status: 500, body: { error: msg, code: e?.code || null } };
   }
 };
