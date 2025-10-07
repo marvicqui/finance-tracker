@@ -26,6 +26,10 @@ function useIsMobile() {
   return isMobile;
 }
 
+function normalizeName(s) {
+  return (s || "").trim().toLocaleLowerCase();
+}
+
 const FinanceTracker = () => {
   // ====== Filtros (mes / histórico) ======
   const [rangeMode, setRangeMode] = useState('month'); // 'month' | 'all'
@@ -66,6 +70,8 @@ const FinanceTracker = () => {
   const [newCard, setNewCard] = useState({
     name: '', limit: '', balance: '', cutoffDay: '', paymentDay: ''
   });
+  const [addingCard, setAddingCard] = useState(false);
+  const [cardMsg, setCardMsg] = useState(null); // {type:'ok'|'err', text:string} | null
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const categories = {
@@ -576,7 +582,18 @@ const FinanceTracker = () => {
                 />
                 <button
                   onClick={async () => {
-                    if (newCard.name && newCard.limit) {
+                    if (!newCard.name || !newCard.limit) {
+                      setCardMsg({ type: 'err', text: 'Nombre y límite son requeridos.' });
+                      return;
+                    }
+                    const exists = creditCards.some(c => normalizeName(c.name) === normalizeName(newCard.name));
+                    if (exists) {
+                      setCardMsg({ type: 'err', text: 'Ya tienes una tarjeta con ese nombre.' });
+                      return;
+                    }
+                    try {
+                      setAddingCard(true);
+                      setCardMsg(null);
                       await createCard({
                         name: newCard.name,
                         limit: parseFloat(newCard.limit),
@@ -585,14 +602,26 @@ const FinanceTracker = () => {
                         paymentDay: parseInt(newCard.paymentDay, 10),
                       });
                       setNewCard({ name: '', limit: '', balance: '', cutoffDay: '', paymentDay: '' });
+                      setCardMsg({ type: 'ok', text: 'Tarjeta agregada correctamente.' });
+                      setTimeout(() => setCardMsg(null), 2000);
+                    } catch (e) {
+                      setCardMsg({ type: 'err', text: e?.message || 'Error al agregar la tarjeta.' });
+                    } finally {
+                      setAddingCard(false);
                     }
                   }}
-                  className="bg-blue-600 text-white rounded-lg h-11 px-4 text-sm hover:bg-blue-700 flex items-center justify-center gap-2"
+                  disabled={addingCard}
+                  className={`bg-blue-600 text-white rounded-lg h-11 px-4 text-sm hover:bg-blue-700 flex items-center justify-center gap-2 ${addingCard ? 'opacity-70 cursor-not-allowed' : ''}`}
                 >
                   <PlusCircle size={18} />
-                  Agregar
+                  {addingCard ? 'Agregando…' : 'Agregar'}
                 </button>
               </div>
+              {cardMsg && (
+                <p className={`mt-3 text-sm ${cardMsg.type === 'ok' ? 'text-green-600' : 'text-red-600'}`}>
+                  {cardMsg.text}
+                </p>
+              )}
             </div>
 
             <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
