@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { PlusCircle, Trash2, CreditCard, TrendingUp, TrendingDown, DollarSign, Download, Upload } from 'lucide-react';
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTransactions } from './hooks/useTransactions';
+import { useCards } from './hooks/useCards';
 import { getUser, login, logout } from './auth';
 
 const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
@@ -47,15 +48,14 @@ const FinanceTracker = () => {
     return () => { mounted = false; };
   }, []);
 
-  // ====== Datos (el hook SIEMPRE se llama para mantener orden) ======
+  // ====== Hooks de datos (SIEMPRE antes de cualquier return) ======
   const userId = user?.userId ?? null;
   const { items, loading, error, create, remove } = useTransactions(userId, queryMonth);
+  const { cards: creditCards, loading: loadingCards, error: errorCards, create: createCard, remove: removeCard } = useCards(userId);
+  const isMobile = useIsMobile();
+  const chartHeight = isMobile ? 220 : 300;
 
   // ====== Estado local UI ======
-  const [creditCards, setCreditCards] = useState([
-    { id: 1, name: 'Visa Oro', limit: 30000, balance: 15000, cutoffDay: 15, paymentDay: 25 },
-    { id: 2, name: 'Mastercard', limit: 20000, balance: 5000, cutoffDay: 10, paymentDay: 20 }
-  ]);
   const [newTransaction, setNewTransaction] = useState({
     date: new Date().toISOString().split('T')[0],
     type: 'egreso',
@@ -120,6 +120,8 @@ const FinanceTracker = () => {
       try {
         const data = JSON.parse(e.target.result);
         let ok = 0, fail = 0;
+
+        // Transacciones
         if (Array.isArray(data.transactions)) {
           const chunks = (arr, size) => arr.reduce((a,_,i)=> (i%size? a[a.length-1].push(arr[i]) : a.push([arr[i]]), a), []);
           for (const batch of chunks(data.transactions, 5)) {
@@ -136,7 +138,25 @@ const FinanceTracker = () => {
             results.forEach(r => r.status === 'fulfilled' ? ok++ : fail++);
           }
         }
-        if (Array.isArray(data.creditCards)) setCreditCards(data.creditCards);
+
+        // Tarjetas (persistir en Cosmos)
+        if (Array.isArray(data.creditCards)) {
+          for (const c of data.creditCards) {
+            try {
+              await createCard({
+                name: c.name,
+                limit: Number(c.limit),
+                balance: Number(c.balance) || 0,
+                cutoffDay: Number(c.cutoffDay) || 1,
+                paymentDay: Number(c.paymentDay) || 10
+              });
+              ok++;
+            } catch {
+              fail++;
+            }
+          }
+        }
+
         alert(`Importación completada. Éxitos: ${ok}, Fallos: ${fail}`);
       } catch (err) {
         console.error(err);
@@ -166,15 +186,12 @@ const FinanceTracker = () => {
     }, {});
     const lineData = Object.values(transactionsByMonth).sort((a, b) => a.month.localeCompare(b.month));
 
-    const totalCreditLimit = creditCards.reduce((s, c) => s + c.limit, 0);
-    const totalCreditUsed = creditCards.reduce((s, c) => s + c.balance, 0);
+    const totalCreditLimit = creditCards.reduce((s, c) => s + (c.limit || 0), 0);
+    const totalCreditUsed = creditCards.reduce((s, c) => s + (c.balance || 0), 0);
     const creditAvailable = totalCreditLimit - totalCreditUsed;
 
     return { totalIngresos, totalEgresos, balance, pieData, lineData, totalCreditLimit, totalCreditUsed, creditAvailable };
   }, [transactions, creditCards]);
-
-  const isMobile = useIsMobile();
-  const chartHeight = isMobile ? 220 : 300;
 
   // ====== Early returns (después de TODOS los hooks) ======
   if (loadingUser) return <div className="p-6">Cargando sesión…</div>;
@@ -250,6 +267,12 @@ const FinanceTracker = () => {
           <>
             {loading && <p className="text-slate-600 mb-4">Cargando transacciones…</p>}
             {error && <p className="text-red-600 mb-4">Error: {String(error)}</p>}
+          </>
+        )}
+        {activeTab === 'tarjetas' && (
+          <>
+            {loadingCards && <p className="text-slate-600 mb-4">Cargando tarjetas…</p>}
+            {errorCards && <p className="text-red-600 mb-4">Error: {String(errorCards)}</p>}
           </>
         )}
 
@@ -358,18 +381,18 @@ const FinanceTracker = () => {
                       <div className="space-y-2">
                         <div className="flex justify-between text-sm">
                           <span>Límite:</span>
-                          <span className="font-semibold">${card.limit.toLocaleString()}</span>
+                          <span className="font-semibold">${(card.limit || 0).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span>Utilizado:</span>
-                          <span className="font-semibold text-red-600">${card.balance.toLocaleString()}</span>
+                          <span className="font-semibold text-red-600">${(card.balance || 0).toLocaleString()}</span>
                         </div>
                         <div className="w-full bg-slate-200 rounded-full h-3">
                           <div
                             className={`h-3 rounded-full transition-all ${
                               usage > 80 ? 'bg-red-500' : usage > 50 ? 'bg-yellow-500' : 'bg-green-500'
                             }`}
-                            style={{ width: `${usage}%` }}
+                            style={{ width: `${isFinite(usage) ? usage : 0}%` }}
                           />
                         </div>
                         <div className="text-xs text-slate-600 flex justify-between">
@@ -552,19 +575,15 @@ const FinanceTracker = () => {
                   className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 />
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (newCard.name && newCard.limit) {
-                      setCreditCards(prev => ([
-                        ...prev,
-                        {
-                          id: Date.now(),
-                          name: newCard.name,
-                          limit: parseFloat(newCard.limit),
-                          balance: parseFloat(newCard.balance) || 0,
-                          cutoffDay: parseInt(newCard.cutoffDay),
-                          paymentDay: parseInt(newCard.paymentDay)
-                        }
-                      ]));
+                      await createCard({
+                        name: newCard.name,
+                        limit: parseFloat(newCard.limit),
+                        balance: parseFloat(newCard.balance) || 0,
+                        cutoffDay: parseInt(newCard.cutoffDay, 10),
+                        paymentDay: parseInt(newCard.paymentDay, 10),
+                      });
                       setNewCard({ name: '', limit: '', balance: '', cutoffDay: '', paymentDay: '' });
                     }
                   }}
@@ -581,10 +600,10 @@ const FinanceTracker = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {creditCards.map(card => {
                   const usage = (card.balance / card.limit) * 100;
-                  const available = card.limit - card.balance;
+                  const available = (card.limit || 0) - (card.balance || 0);
                   return (
                     <div key={card.id} className="border-2 border-slate-200 rounded-xl p-6 bg-gradient-to-br from-slate-700 to-slate-900 text-white relative">
-                      <button onClick={() => setCreditCards(prev => prev.filter(c => c.id !== card.id))}
+                      <button onClick={() => removeCard(card.id)}
                               className="absolute top-2 right-2 text-red-400 hover:text-red-300">
                         <Trash2 size={18} />
                       </button>
@@ -595,11 +614,11 @@ const FinanceTracker = () => {
                       <div className="space-y-2">
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-300">Límite total:</span>
-                          <span className="font-semibold">${card.limit.toLocaleString()}</span>
+                          <span className="font-semibold">${(card.limit || 0).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-300">Utilizado:</span>
-                          <span className="font-semibold text-red-300">${card.balance.toLocaleString()}</span>
+                          <span className="font-semibold text-red-300">${(card.balance || 0).toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-sm">
                           <span className="text-slate-300">Disponible:</span>
@@ -610,7 +629,7 @@ const FinanceTracker = () => {
                             className={`h-2 rounded-full transition-all ${
                               usage > 80 ? 'bg-red-400' : usage > 50 ? 'bg-yellow-400' : 'bg-green-400'
                             }`}
-                            style={{ width: `${usage}%` }}
+                            style={{ width: `${isFinite(usage) ? usage : 0}%` }}
                           />
                         </div>
                         <div className="text-xs text-slate-300 flex justify-between mt-3 pt-3 border-t border-slate-600">
