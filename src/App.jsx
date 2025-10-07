@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { getUser, login, logout } from './auth';
 import { PlusCircle, Trash2, CreditCard, TrendingUp, TrendingDown, DollarSign, Download, Upload } from 'lucide-react';
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTransactions } from './hooks/useTransactions'; // API hacia Azure Functions/Cosmos
@@ -11,8 +12,28 @@ const FinanceTracker = () => {
   // Para pedir datos: si histórico => pasamos "" como month para traer todo
   const queryMonth = rangeMode === 'all' ? '' : month;
 
+  // --- Sesión Entra ID (SWA) ---
+  const [user, setUser] = useState(null);
+  useEffect(() => { getUser().then(setUser); }, []);
+
+  // Si no hay usuario aún, puedes mostrar un loader o un botón de login.
+  // Con tu staticwebapp.config.json ya configurado, SWA redirige 401→/login,
+  // pero este fallback es útil por si accedes directo a /login o en local.
+  if (!user) {
+    return (
+      <div className="p-6 max-w-xl mx-auto">
+        <h1 className="text-2xl font-bold mb-2">Finance Tracker</h1>
+        <p className="mb-4">Necesitas iniciar sesión.</p>
+        <button onClick={login} className="border px-3 py-2 rounded">
+          Entrar con Microsoft
+        </button>
+      </div>
+    );
+  }
+
+
   // === Datos desde Cosmos vía hook ===
-  const userId = 'mario'; // luego tomar de Auth
+  const userId = user.userId;          // o user.userDetails si prefieres particionar por email
   const { items, loading, error, create, remove } = useTransactions(userId, queryMonth);
 
   // Helpers para navegar meses
@@ -186,6 +207,14 @@ const FinanceTracker = () => {
             </label>
           </div>
         </div>
+
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-slate-600 hidden sm:inline">{user.userDetails}</span>
+          <button onClick={logout} className="border px-3 py-2 rounded hover:bg-slate-50">
+            Cerrar sesión
+          </button>
+        </div>
+
 
         {/* Tabs */}
         <div className="flex gap-2 mb-4 border-b border-slate-300">
