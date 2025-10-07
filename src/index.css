@@ -1,3 +1,24 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Oculta la scrollbar en contenedores horizontales (tabs en iOS) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none; /* IE y Edge */
+  scrollbar-width: none;    /* Firefox */
+}
+
+/* Mejoras táctiles en inputs para iOS/Android */
+input, select, button {
+  touch-action: manipulation;
+}
+
+/* Evita zoom indeseado en iOS cuando hay inputs pequeños */
+@supports (-webkit-touch-callout: none) {
+  input, select, button {
+    font-size: 16px;
+  }
+}
