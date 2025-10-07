@@ -1,21 +1,27 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { getUser, login, logout } from './auth';
 import { PlusCircle, Trash2, CreditCard, TrendingUp, TrendingDown, DollarSign, Download, Upload } from 'lucide-react';
 import { PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { useTransactions } from './hooks/useTransactions'; // API hacia Azure Functions/Cosmos
+import { useTransactions } from './hooks/useTransactions';
+import { getUser, login, logout } from './auth';
+
+const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+
+function fmt(ymDate) { return ymDate.toISOString().slice(0, 7); }
+function addMonths(ym, delta) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, (m - 1) + delta, 1);
+  return fmt(d);
+}
 
 const FinanceTracker = () => {
-  // === Filtro: por mes o histórico ===
-  const [rangeMode, setRangeMode] = useState('month');                 // 'month' | 'all'
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM (default: mes actual)
-
-  // Para pedir datos: si histórico => pasamos "" como month para traer todo
+  // ====== Filtros (mes / histórico) ======
+  const [rangeMode, setRangeMode] = useState('month'); // 'month' | 'all'
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
   const queryMonth = rangeMode === 'all' ? '' : month;
 
-  // --- Sesión Entra ID (SWA) ---
+  // ====== Sesión Entra ID (SWA) ======
   const [user, setUser] = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
-
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -29,47 +35,32 @@ const FinanceTracker = () => {
     return () => { mounted = false; };
   }, []);
 
-  if (loadingUser) {
-    return <div className="p-6">Cargando sesión…</div>;
-  }
-
-  if (!user) {
-    // Con el config ya te redirige a /login en 401, pero este fallback ayuda
-    window.location.href = '/login';
-    return null;
-  }
-
-  // Si no hay usuario aún, puedes mostrar un loader o un botón de login.
-  // Con tu staticwebapp.config.json ya configurado, SWA redirige 401→/login,
-  // pero este fallback es útil por si accedes directo a /login o en local.
-  if (!user) {
-    return (
-      <div className="p-6 max-w-xl mx-auto">
-        <h1 className="text-2xl font-bold mb-2">Finance Tracker</h1>
-        <p className="mb-4">Necesitas iniciar sesión.</p>
-        <button onClick={login} className="border px-3 py-2 rounded">
-          Entrar con Microsoft
-        </button>
-      </div>
-    );
-  }
-
-
-  // === Datos desde Cosmos vía hook ===
-  const userId = user.userId;          // o user.userDetails si prefieres particionar por email
+  // ====== Datos (hook SIEMPRE se llama para mantener orden de hooks) ======
+  const userId = user?.userId ?? null; // el backend ya toma userId del token
   const { items, loading, error, create, remove } = useTransactions(userId, queryMonth);
 
-  // Helpers para navegar meses
-  function fmt(ymDate) { return ymDate.toISOString().slice(0, 7); }
-  function addMonths(ym, delta) {
-    const [y, m] = ym.split('-').map(Number);
-    const d = new Date(y, (m - 1) + delta, 1);
-    return fmt(d);
-  }
-  const gotoPrev = () => setMonth(addMonths(month, -1));
-  const gotoNext = () => setMonth(addMonths(month, 1));
+  // ====== Estado local (resto de hooks antes de cualquier return) ======
+  const [creditCards, setCreditCards] = useState([
+    { id: 1, name: 'Visa Oro', limit: 30000, balance: 15000, cutoffDay: 15, paymentDay: 25 },
+    { id: 2, name: 'Mastercard', limit: 20000, balance: 5000, cutoffDay: 10, paymentDay: 20 }
+  ]);
+  const [newTransaction, setNewTransaction] = useState({
+    date: new Date().toISOString().split('T')[0],
+    type: 'egreso',
+    category: '',
+    amount: '',
+    description: ''
+  });
+  const [newCard, setNewCard] = useState({
+    name: '', limit: '', balance: '', cutoffDay: '', paymentDay: ''
+  });
+  const [activeTab, setActiveTab] = useState('dashboard');
 
-  // Adaptar items → shape de UI
+  const categories = {
+    ingreso: ['Salario', 'Freelance', 'Inversiones', 'Otros'],
+    egreso: ['Alimentación', 'Transporte', 'Vivienda', 'Servicios', 'Entretenimiento', 'Salud', 'Educación', 'Otros']
+  };
+
   const transactions = useMemo(() => {
     return (items || []).map(t => ({
       id: t.id,
@@ -81,61 +72,24 @@ const FinanceTracker = () => {
     }));
   }, [items]);
 
-  // Estado local de tarjetas (UI)
-  const [creditCards, setCreditCards] = useState([
-    { id: 1, name: 'Visa Oro', limit: 30000, balance: 15000, cutoffDay: 15, paymentDay: 25 },
-    { id: 2, name: 'Mastercard', limit: 20000, balance: 5000, cutoffDay: 10, paymentDay: 20 }
-  ]);
-
-  // Form transacción
-  const [newTransaction, setNewTransaction] = useState({
-    date: new Date().toISOString().split('T')[0],
-    type: 'egreso',
-    category: '',
-    amount: '',
-    description: ''
-  });
-
-  // Form tarjeta
-  const [newCard, setNewCard] = useState({
-    name: '',
-    limit: '',
-    balance: '',
-    cutoffDay: '',
-    paymentDay: ''
-  });
-
-  const [activeTab, setActiveTab] = useState('dashboard');
-
-  const categories = {
-    ingreso: ['Salario', 'Freelance', 'Inversiones', 'Otros'],
-    egreso: ['Alimentación', 'Transporte', 'Vivienda', 'Servicios', 'Entretenimiento', 'Salud', 'Educación', 'Otros']
-  };
-
-  const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
-
-  // Crear en Cosmos
+  // ====== Acciones ======
   const addTransaction = async () => {
     const { category, amount, description, date, type } = newTransaction;
     const n = Number(amount);
+    if (!userId) { alert('No hay usuario autenticado'); return; }
     if (!category || Number.isNaN(n)) return;
-
     const signed = type === 'egreso' ? -Math.abs(n) : Math.abs(n);
-    await create({ date, amount: signed, category, note: description, account: 'Other' });
-
+    const res = await create({ date, amount: signed, category, note: description, account: 'Other' });
+    // reset
     setNewTransaction({
       date: new Date().toISOString().split('T')[0],
-      type: 'egreso',
-      category: '',
-      amount: '',
-      description: ''
+      type: 'egreso', category: '', amount: '', description: ''
     });
+    return res;
   };
 
-  // Borrar en Cosmos
   const deleteTransaction = async (id) => { await remove(id); };
 
-  // Export/Import local (import crea transacciones en Cosmos)
   const exportData = () => {
     const data = { transactions, creditCards, exportDate: new Date().toISOString() };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -154,8 +108,7 @@ const FinanceTracker = () => {
     reader.onload = async (e) => {
       try {
         const data = JSON.parse(e.target.result);
-        let ok = 0, fail = 0, errors = [];
-
+        let ok = 0, fail = 0;
         if (Array.isArray(data.transactions)) {
           const chunks = (arr, size) => arr.reduce((a,_,i)=> (i%size? a[a.length-1].push(arr[i]) : a.push([arr[i]]), a), []);
           for (const batch of chunks(data.transactions, 5)) {
@@ -169,11 +122,10 @@ const FinanceTracker = () => {
                 account: 'Other'
               });
             }));
-            results.forEach(r => r.status === 'fulfilled' ? ok++ : (fail++, errors.push(String(r.reason))));
+            results.forEach(r => r.status === 'fulfilled' ? ok++ : fail++);
           }
         }
         if (Array.isArray(data.creditCards)) setCreditCards(data.creditCards);
-
         alert(`Importación completada. Éxitos: ${ok}, Fallos: ${fail}`);
       } catch (err) {
         console.error(err);
@@ -183,10 +135,10 @@ const FinanceTracker = () => {
     reader.readAsText(file);
   };
 
-  // Estadísticas (sobre el rango actualmente cargado)
+  // ====== Estadísticas ======
   const statistics = useMemo(() => {
-    const totalIngresos = transactions.filter(t => t.type === 'ingreso').reduce((sum, t) => sum + t.amount, 0);
-    const totalEgresos = transactions.filter(t => t.type === 'egreso').reduce((sum, t) => sum + t.amount, 0);
+    const totalIngresos = transactions.filter(t => t.type === 'ingreso').reduce((s, t) => s + t.amount, 0);
+    const totalEgresos = transactions.filter(t => t.type === 'egreso').reduce((s, t) => s + t.amount, 0);
     const balance = totalIngresos - totalEgresos;
 
     const egresosPorCategoria = transactions
@@ -203,13 +155,21 @@ const FinanceTracker = () => {
     }, {});
     const lineData = Object.values(transactionsByMonth).sort((a, b) => a.month.localeCompare(b.month));
 
-    const totalCreditLimit = creditCards.reduce((sum, c) => sum + c.limit, 0);
-    const totalCreditUsed = creditCards.reduce((sum, c) => sum + c.balance, 0);
+    const totalCreditLimit = creditCards.reduce((s, c) => s + c.limit, 0);
+    const totalCreditUsed = creditCards.reduce((s, c) => s + c.balance, 0);
     const creditAvailable = totalCreditLimit - totalCreditUsed;
 
     return { totalIngresos, totalEgresos, balance, pieData, lineData, totalCreditLimit, totalCreditUsed, creditAvailable };
   }, [transactions, creditCards]);
 
+  // ====== Early returns (después de TODOS los hooks) ======
+  if (loadingUser) return <div className="p-6">Cargando sesión…</div>;
+  if (!user) { window.location.href = '/login'; return null; }
+
+  const gotoPrev = () => setMonth(addMonths(month, -1));
+  const gotoNext = () => setMonth(addMonths(month, 1));
+
+  // ====== UI ======
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
       <div className="max-w-7xl mx-auto">
@@ -218,7 +178,8 @@ const FinanceTracker = () => {
             <DollarSign className="text-green-600" size={40} />
             Control de Finanzas Personales
           </h1>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-slate-600 hidden sm:inline">{user.userDetails}</span>
             <button onClick={exportData} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
               <Download size={20} />
               Exportar
@@ -228,16 +189,9 @@ const FinanceTracker = () => {
               Importar
               <input type="file" accept=".json" onChange={importData} className="hidden" />
             </label>
+            <button onClick={logout} className="border px-3 py-2 rounded hover:bg-slate-50">Salir</button>
           </div>
         </div>
-
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-slate-600 hidden sm:inline">{user.userDetails}</span>
-          <button onClick={logout} className="border px-3 py-2 rounded hover:bg-slate-50">
-            Cerrar sesión
-          </button>
-        </div>
-
 
         {/* Tabs */}
         <div className="flex gap-2 mb-4 border-b border-slate-300">
@@ -256,11 +210,7 @@ const FinanceTracker = () => {
 
         {/* Selector de rango (Mes / Histórico) */}
         <div className="flex flex-wrap items-center gap-3 mb-6">
-          <select
-            value={rangeMode}
-            onChange={(e)=>setRangeMode(e.target.value)}
-            className="border rounded px-2 py-1"
-          >
+          <select value={rangeMode} onChange={(e)=>setRangeMode(e.target.value)} className="border rounded px-2 py-1">
             <option value="month">Por mes</option>
             <option value="all">Histórico total</option>
           </select>
@@ -282,7 +232,6 @@ const FinanceTracker = () => {
           )}
         </div>
 
-        {/* Estados de carga/errores (para dashboard/transacciones) */}
         {(activeTab !== 'tarjetas') && (
           <>
             {loading && <p className="text-slate-600 mb-4">Cargando transacciones…</p>}
@@ -550,18 +499,14 @@ const FinanceTracker = () => {
                 />
                 <input
                   type="number"
-                  placeholder="Día de corte"
-                  min="1"
-                  max="31"
+                  placeholder="Día de corte" min="1" max="31"
                   value={newCard.cutoffDay}
                   onChange={(e) => setNewCard({ ...newCard, cutoffDay: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
                 />
                 <input
                   type="number"
-                  placeholder="Día de pago"
-                  min="1"
-                  max="31"
+                  placeholder="Día de pago" min="1" max="31"
                   value={newCard.paymentDay}
                   onChange={(e) => setNewCard({ ...newCard, paymentDay: e.target.value })}
                   className="border border-slate-300 rounded-lg px-4 py-2"
