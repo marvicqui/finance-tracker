@@ -13,6 +13,18 @@ function addMonths(ym, delta) {
   return fmt(d);
 }
 
+// Detecta móvil para ajustar alturas de charts
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 640);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return isMobile;
+}
+
 const FinanceTracker = () => {
   // ====== Filtros (mes / histórico) ======
   const [rangeMode, setRangeMode] = useState('month'); // 'month' | 'all'
@@ -35,11 +47,11 @@ const FinanceTracker = () => {
     return () => { mounted = false; };
   }, []);
 
-  // ====== Datos (hook SIEMPRE se llama para mantener orden de hooks) ======
-  const userId = user?.userId ?? null; // el backend ya toma userId del token
+  // ====== Datos (el hook SIEMPRE se llama para mantener orden) ======
+  const userId = user?.userId ?? null;
   const { items, loading, error, create, remove } = useTransactions(userId, queryMonth);
 
-  // ====== Estado local (resto de hooks antes de cualquier return) ======
+  // ====== Estado local UI ======
   const [creditCards, setCreditCards] = useState([
     { id: 1, name: 'Visa Oro', limit: 30000, balance: 15000, cutoffDay: 15, paymentDay: 25 },
     { id: 2, name: 'Mastercard', limit: 20000, balance: 5000, cutoffDay: 10, paymentDay: 20 }
@@ -80,7 +92,6 @@ const FinanceTracker = () => {
     if (!category || Number.isNaN(n)) return;
     const signed = type === 'egreso' ? -Math.abs(n) : Math.abs(n);
     const res = await create({ date, amount: signed, category, note: description, account: 'Other' });
-    // reset
     setNewTransaction({
       date: new Date().toISOString().split('T')[0],
       type: 'egreso', category: '', amount: '', description: ''
@@ -169,37 +180,40 @@ const FinanceTracker = () => {
   const gotoPrev = () => setMonth(addMonths(month, -1));
   const gotoNext = () => setMonth(addMonths(month, 1));
 
+  const isMobile = useIsMobile();
+  const chartHeight = isMobile ? 220 : 300;
+
   // ====== UI ======
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-3 sm:p-6">
       <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-4xl font-bold text-slate-800 flex items-center gap-3">
-            <DollarSign className="text-green-600" size={40} />
-            Control de Finanzas Personales
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+          <h1 className="text-3xl sm:text-4xl font-bold text-slate-800 flex items-center gap-3">
+            <DollarSign className="text-green-600" size={36} />
+            <span>Control de Finanzas Personales</span>
           </h1>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-600 hidden sm:inline">{user.userDetails}</span>
-            <button onClick={exportData} className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
-              <Download size={20} />
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <span className="text-xs sm:text-sm text-slate-600 hidden sm:inline">{user.userDetails}</span>
+            <button onClick={exportData} className="flex items-center gap-2 bg-green-600 text-white h-10 px-3 rounded-lg hover:bg-green-700 text-sm">
+              <Download size={18} />
               Exportar
             </button>
-            <label className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer">
-              <Upload size={20} />
+            <label className="flex items-center gap-2 bg-blue-600 text-white h-10 px-3 rounded-lg hover:bg-blue-700 cursor-pointer text-sm">
+              <Upload size={18} />
               Importar
               <input type="file" accept=".json" onChange={importData} className="hidden" />
             </label>
-            <button onClick={logout} className="border px-3 py-2 rounded hover:bg-slate-50">Salir</button>
+            <button onClick={logout} className="border h-10 px-3 rounded hover:bg-slate-50 text-sm">Salir</button>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-4 border-b border-slate-300">
+        <div className="flex gap-2 mb-4 border-b border-slate-300 overflow-x-auto no-scrollbar">
           {['dashboard', 'transacciones', 'tarjetas'].map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`px-6 py-3 font-semibold transition-all ${
+              className={`px-4 sm:px-6 py-3 font-semibold whitespace-nowrap transition-all ${
                 activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-600 hover:text-slate-800'
               }`}
             >
@@ -209,26 +223,26 @@ const FinanceTracker = () => {
         </div>
 
         {/* Selector de rango (Mes / Histórico) */}
-        <div className="flex flex-wrap items-center gap-3 mb-6">
-          <select value={rangeMode} onChange={(e)=>setRangeMode(e.target.value)} className="border rounded px-2 py-1">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
+          <select value={rangeMode} onChange={(e)=>setRangeMode(e.target.value)} className="border rounded px-2 h-10 text-sm">
             <option value="month">Por mes</option>
             <option value="all">Histórico total</option>
           </select>
 
           {rangeMode === 'month' ? (
             <>
-              <button onClick={gotoPrev} className="border px-3 py-1 rounded hover:bg-slate-50">&lt;</button>
+              <button onClick={gotoPrev} className="border h-10 w-10 rounded hover:bg-slate-50">&lt;</button>
               <input
                 type="month"
                 value={month}
                 onChange={(e)=>setMonth(e.target.value)}
-                className="border rounded px-2 py-1"
+                className="border rounded px-2 h-10 text-sm w-[11.5rem] sm:w-auto"
               />
-              <button onClick={gotoNext} className="border px-3 py-1 rounded hover:bg-slate-50">&gt;</button>
-              <span className="text-sm text-slate-500">Mostrando: {month}</span>
+              <button onClick={gotoNext} className="border h-10 w-10 rounded hover:bg-slate-50">&gt;</button>
+              <span className="text-xs sm:text-sm text-slate-500">Mostrando: {month}</span>
             </>
           ) : (
-            <span className="text-sm text-slate-500">Mostrando: histórico completo</span>
+            <span className="text-xs sm:text-sm text-slate-500">Mostrando: histórico completo</span>
           )}
         </div>
 
@@ -241,55 +255,55 @@ const FinanceTracker = () => {
 
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-white p-6 rounded-xl shadow-md border-l-4 border-green-500">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+              <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border-l-4 border-green-500">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-slate-600 text-sm">Total Ingresos</p>
-                    <p className="text-2xl font-bold text-green-600">${statistics.totalIngresos.toLocaleString()}</p>
+                    <p className="text-slate-600 text-xs sm:text-sm">Total Ingresos</p>
+                    <p className="text-xl sm:text-2xl font-bold text-green-600">${statistics.totalIngresos.toLocaleString()}</p>
                   </div>
-                  <TrendingUp className="text-green-500" size={32} />
+                  <TrendingUp className="text-green-500" size={28} />
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-xl shadow-md border-l-4 border-red-500">
+              <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border-l-4 border-red-500">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-slate-600 text-sm">Total Egresos</p>
-                    <p className="text-2xl font-bold text-red-600">${statistics.totalEgresos.toLocaleString()}</p>
+                    <p className="text-slate-600 text-xs sm:text-sm">Total Egresos</p>
+                    <p className="text-xl sm:text-2xl font-bold text-red-600">${statistics.totalEgresos.toLocaleString()}</p>
                   </div>
-                  <TrendingDown className="text-red-500" size={32} />
+                  <TrendingDown className="text-red-500" size={28} />
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-xl shadow-md border-l-4 border-blue-500">
+              <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border-l-4 border-blue-500">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-slate-600 text-sm">Balance</p>
-                    <p className={`text-2xl font-bold ${statistics.balance >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                    <p className="text-slate-600 text-xs sm:text-sm">Balance</p>
+                    <p className={`text-xl sm:text-2xl font-bold ${statistics.balance >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
                       ${statistics.balance.toLocaleString()}
                     </p>
                   </div>
-                  <DollarSign className="text-blue-500" size={32} />
+                  <DollarSign className="text-blue-500" size={28} />
                 </div>
               </div>
 
-              <div className="bg-white p-6 rounded-xl shadow-md border-l-4 border-purple-500">
+              <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border-l-4 border-purple-500">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-slate-600 text-sm">Crédito Disponible</p>
-                    <p className="text-2xl font-bold text-purple-600">${statistics.creditAvailable.toLocaleString()}</p>
+                    <p className="text-slate-600 text-xs sm:text-sm">Crédito Disponible</p>
+                    <p className="text-xl sm:text-2xl font-bold text-purple-600">${statistics.creditAvailable.toLocaleString()}</p>
                   </div>
-                  <CreditCard className="text-purple-500" size={32} />
+                  <CreditCard className="text-purple-500" size={28} />
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-xl shadow-md">
-                <h2 className="text-xl font-bold text-slate-800 mb-4">Egresos por Categoría</h2>
+              <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-4">Egresos por Categoría</h2>
                 {statistics.pieData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={chartHeight}>
                     <PieChart>
                       <Pie
                         data={statistics.pieData}
@@ -309,14 +323,14 @@ const FinanceTracker = () => {
                     </PieChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-slate-500 text-center py-12">No hay datos de egresos</p>
+                  <p className="text-slate-500 text-center py-10 sm:py-12">No hay datos de egresos</p>
                 )}
               </div>
 
-              <div className="bg-white p-6 rounded-xl shadow-md">
-                <h2 className="text-xl font-bold text-slate-800 mb-4">Historial Mensual</h2>
+              <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
+                <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-4">Historial Mensual</h2>
                 {statistics.lineData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={chartHeight}>
                     <LineChart data={statistics.lineData}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="month" />
@@ -328,13 +342,13 @@ const FinanceTracker = () => {
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-slate-500 text-center py-12">No hay datos históricos</p>
+                  <p className="text-slate-500 text-center py-10 sm:py-12">No hay datos históricos</p>
                 )}
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-xl shadow-md">
-              <h2 className="text-xl font-bold text-slate-800 mb-4">Estado de Tarjetas de Crédito</h2>
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-4">Estado de Tarjetas de Crédito</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {creditCards.map(card => {
                   const usage = (card.balance / card.limit) * 100;
@@ -373,19 +387,19 @@ const FinanceTracker = () => {
 
         {activeTab === 'transacciones' && (
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-xl shadow-md">
-              <h2 className="text-xl font-bold text-slate-800 mb-4">Agregar Transacción</h2>
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-4">Agregar Transacción</h2>
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                 <input
                   type="date"
                   value={newTransaction.date}
                   onChange={(e) => setNewTransaction({ ...newTransaction, date: e.target.value })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 />
                 <select
                   value={newTransaction.type}
                   onChange={(e) => setNewTransaction({ ...newTransaction, type: e.target.value, category: '' })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 >
                   <option value="egreso">Egreso</option>
                   <option value="ingreso">Ingreso</option>
@@ -393,7 +407,7 @@ const FinanceTracker = () => {
                 <select
                   value={newTransaction.category}
                   onChange={(e) => setNewTransaction({ ...newTransaction, category: e.target.value })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 >
                   <option value="">Categoría</option>
                   {categories[newTransaction.type].map(cat => (
@@ -405,29 +419,31 @@ const FinanceTracker = () => {
                   placeholder="Monto"
                   value={newTransaction.amount}
                   onChange={(e) => setNewTransaction({ ...newTransaction, amount: e.target.value })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 />
                 <input
                   type="text"
                   placeholder="Descripción"
                   value={newTransaction.description}
                   onChange={(e) => setNewTransaction({ ...newTransaction, description: e.target.value })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 />
                 <button
                   onClick={addTransaction}
-                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 flex items-center justify-center gap-2"
+                  className="bg-blue-600 text-white rounded-lg h-11 px-4 text-sm hover:bg-blue-700 flex items-center justify-center gap-2"
                 >
-                  <PlusCircle size={20} />
+                  <PlusCircle size={18} />
                   Agregar
                 </button>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-xl shadow-md">
-              <h2 className="text-xl font-bold text-slate-800 mb-4">Historial de Transacciones</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full">
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-4">Historial de Transacciones</h2>
+
+              {/* Tabla desktop */}
+              <div className="overflow-x-auto hidden md:block">
+                <table className="w-full text-sm">
                   <thead className="bg-slate-100">
                     <tr>
                       <th className="px-4 py-3 text-left">Fecha</th>
@@ -467,49 +483,73 @@ const FinanceTracker = () => {
                   </tbody>
                 </table>
               </div>
+
+              {/* Lista móvil */}
+              <div className="md:hidden space-y-2">
+                {transactions
+                  .slice()
+                  .sort((a, b) => new Date(b.date) - new Date(a.date))
+                  .map(t => (
+                    <div key={t.id} className="border border-slate-200 rounded-lg p-3 bg-white">
+                      <div className="flex items-center justify-between">
+                        <div className="font-medium">{t.category}</div>
+                        <div className={`font-semibold ${t.type === 'ingreso' ? 'text-green-600' : 'text-red-600'}`}>
+                          ${t.amount.toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-1">{t.date} • {t.type}</div>
+                      {t.description && <div className="text-sm text-slate-600 mt-1">{t.description}</div>}
+                      <div className="mt-2 flex justify-end">
+                        <button onClick={() => deleteTransaction(t.id)} className="text-red-600 hover:text-red-800 text-sm">
+                          Eliminar
+                        </button>
+                      </div>
+                    </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
         {activeTab === 'tarjetas' && (
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-xl shadow-md">
-              <h2 className="text-xl font-bold text-slate-800 mb-4">Agregar Tarjeta de Crédito</h2>
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-4">Agregar Tarjeta de Crédito</h2>
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                 <input
                   type="text"
                   placeholder="Nombre"
                   value={newCard.name}
                   onChange={(e) => setNewCard({ ...newCard, name: e.target.value })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 />
                 <input
                   type="number"
                   placeholder="Límite"
                   value={newCard.limit}
                   onChange={(e) => setNewCard({ ...newCard, limit: e.target.value })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 />
                 <input
                   type="number"
                   placeholder="Saldo usado"
                   value={newCard.balance}
                   onChange={(e) => setNewCard({ ...newCard, balance: e.target.value })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 />
                 <input
                   type="number"
                   placeholder="Día de corte" min="1" max="31"
                   value={newCard.cutoffDay}
                   onChange={(e) => setNewCard({ ...newCard, cutoffDay: e.target.value })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 />
                 <input
                   type="number"
                   placeholder="Día de pago" min="1" max="31"
                   value={newCard.paymentDay}
                   onChange={(e) => setNewCard({ ...newCard, paymentDay: e.target.value })}
-                  className="border border-slate-300 rounded-lg px-4 py-2"
+                  className="border border-slate-300 rounded-lg px-3 h-11 text-sm"
                 />
                 <button
                   onClick={() => {
@@ -528,16 +568,16 @@ const FinanceTracker = () => {
                       setNewCard({ name: '', limit: '', balance: '', cutoffDay: '', paymentDay: '' });
                     }
                   }}
-                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 flex items-center justify-center gap-2"
+                  className="bg-blue-600 text-white rounded-lg h-11 px-4 text-sm hover:bg-blue-700 flex items-center justify-center gap-2"
                 >
-                  <PlusCircle size={20} />
+                  <PlusCircle size={18} />
                   Agregar
                 </button>
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-xl shadow-md">
-              <h2 className="text-xl font-bold text-slate-800 mb-4">Mis Tarjetas de Crédito</h2>
+            <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md">
+              <h2 className="text-lg sm:text-xl font-bold text-slate-800 mb-4">Mis Tarjetas de Crédito</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {creditCards.map(card => {
                   const usage = (card.balance / card.limit) * 100;
@@ -573,7 +613,7 @@ const FinanceTracker = () => {
                             style={{ width: `${usage}%` }}
                           />
                         </div>
-                        <div className="text-xs text-slate-400 flex justify-between mt-3 pt-3 border-t border-slate-600">
+                        <div className="text-xs text-slate-300 flex justify-between mt-3 pt-3 border-t border-slate-600">
                           <span>Corte: día {card.cutoffDay}</span>
                           <span>Pago: día {card.paymentDay}</span>
                         </div>
