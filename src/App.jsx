@@ -173,15 +173,15 @@ const FinanceTracker = () => {
     return { totalIngresos, totalEgresos, balance, pieData, lineData, totalCreditLimit, totalCreditUsed, creditAvailable };
   }, [transactions, creditCards]);
 
+  const isMobile = useIsMobile();
+  const chartHeight = isMobile ? 220 : 300;
+
   // ====== Early returns (después de TODOS los hooks) ======
   if (loadingUser) return <div className="p-6">Cargando sesión…</div>;
   if (!user) { window.location.href = '/login'; return null; }
 
   const gotoPrev = () => setMonth(addMonths(month, -1));
   const gotoNext = () => setMonth(addMonths(month, 1));
-
-  const isMobile = useIsMobile();
-  const chartHeight = isMobile ? 220 : 300;
 
   // ====== UI ======
   return (
