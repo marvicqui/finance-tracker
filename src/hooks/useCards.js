@@ -1,41 +1,46 @@
 import { useEffect, useState, useCallback } from 'react';
-import * as api from '../api/cards';
+import { listCards, addCard, deleteCard } from '../api/cards'; // 👈 asegúrate de este path/nombres
 
 export function useCards(userId) {
-  const [cards, setCards] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [cards, setCards]   = useState([]);
+  const [loading, setLoad]  = useState(false);
+  const [error, setError]   = useState(null);
 
+  // carga inicial / cuando cambia el usuario
   useEffect(() => {
-    let cancelled = false;
+    let alive = true;
     async function load() {
       if (!userId) { setCards([]); return; }
-      setLoading(true); setError(null);
+      setLoad(true);
+      setError(null);
       try {
-        const data = await api.listCards();
-        if (!cancelled) setCards(data);
+        const data = await listCards();           // 👈 llamada a API
+        if (alive) setCards(Array.isArray(data) ? data : []);
       } catch (e) {
-        if (!cancelled) setError(e);
+        if (alive) setError(e);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (alive) setLoad(false);
       }
     }
     load();
-    return () => { cancelled = true; };
+    return () => { alive = false; };
   }, [userId]);
 
+  // crear
   const create = useCallback(async (card) => {
-    if (!userId) throw new Error('No usuario');
-    const c = await api.addCard(card);
-    setCards(prev => [c, ...prev]);
-    return c;
-  }, [userId]);
+    setError(null);
+    const created = await addCard(card);         // 👈 llamada a API
+    // optimista / o puedes recargar listCards() si prefieres
+    setCards(prev => [created, ...prev]);
+    return created;
+  }, []);
 
+  // borrar
   const remove = useCallback(async (id) => {
-    if (!userId) throw new Error('No usuario');
-    await api.deleteCard(id);
-    setCards(prev => prev.filter(x => x.id !== id));
-  }, [userId]);
+    setError(null);
+    await deleteCard(id);                        // 👈 llamada a API
+    setCards(prev => prev.filter(c => c.id !== id));
+  }, []);
 
   return { cards, loading, error, create, remove };
 }

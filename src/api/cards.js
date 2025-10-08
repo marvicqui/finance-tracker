@@ -1,3 +1,5 @@
+// src/api/cards.js
+
 export async function listCards() {
   const r = await fetch('/api/cards', { credentials: 'include' });
   if (!r.ok) throw new Error('Error al leer tarjetas');
@@ -11,7 +13,24 @@ export async function addCard(card) {
     credentials: 'include',
     body: JSON.stringify(card)
   });
-  if (!r.ok) throw new Error('Error al crear tarjeta');
+
+  if (r.status === 409) throw new Error('Ya existe una tarjeta con ese nombre.');
+
+  if (!r.ok) {
+    // Muestra el error real del servidor
+    let msg = 'Error al crear tarjeta';
+    try {
+      const ct = r.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        const j = await r.json();
+        if (j?.error) msg = j.error;
+      } else {
+        const t = await r.text();
+        if (t) msg = t;
+      }
+    } catch {}
+    throw new Error(msg);
+  }
   return r.json();
 }
 
